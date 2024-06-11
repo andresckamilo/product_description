@@ -4,7 +4,7 @@ import logging
 
 # Configure logging
 app_path = "."  # . for current working directory
-mode = "run"  # run or edit
+mode = "edit"  # run or edit
 
 try:
     asgi_app = writer.serve.get_asgi_app(app_path, mode)

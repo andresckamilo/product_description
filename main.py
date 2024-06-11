@@ -1,40 +1,123 @@
 import writer as wf
+from prompts import base_prompts, seo_keywords, user_prompt, seo_keywords_sp, user_sp
 
-# This is a placeholder to get you started or refresh your memory.
-# Delete it or adapt it as necessary.
-# Documentation is available at https://dev.writer.com/framework
+def _generate_product_description(product_info:dict, **kwargs):
+   
+   prompt = kwargs['prompt'].format(**product_info)
+   system = kwargs['system']
+   description = _run_model(system=system, prompt=prompt)
+   return description.choices[0].message.content
 
-# Shows in the log when the app starts
-print("Hello world!")
 
-# Its name starts with _, so this function won't be exposed
-def _update_message(state):
-    is_even = state["counter"] % 2 == 0
-    message = ("+Even" if is_even else "-Odd")
-    state["message"] = message
+def _run_model(model:str = 'gpt-4o',*, system:str,prompt:str):
+    import os
+    from dotenv import load_dotenv
+    from openai import OpenAI
+    import instructor
+    import logfire
 
-def decrement(state):
-    state["counter"] -= 1
-    _update_message(state)
+    load_dotenv()
 
-def increment(state):
-    state["counter"] += 1
-    # Shows in the log when the event handler is run
-    print("The counter has been incremented.")
-    _update_message(state)
-    
-# Initialise the state
+    logfire.configure(token=os.getenv("LOGFIRE_API_KEY"))
 
-# "_my_private_element" won't be serialised or sent to the frontend,
-# because it starts with an underscore
+    client = instructor.patch(
+        OpenAI(
+        )
+    )
+    logfire.instrument_openai(client)
 
-initial_state = wf.init_state({
-    "my_app": {
-        "title": "MY APP"
-    },
-    "_my_private_element": 1337,
-    "message": None,
-    "counter": 26,
+    return client.chat.completions.create(
+        messages = [
+        {
+            "role": "system",
+            "content": system,
+        },
+        {"role": "user", "content": f""" {prompt}
+        """},
+    ], 
+        model=model,
+    )
+
+def _run_model_plotly(model:str = 'gpt-4o',*, system:str,prompt:str):
+    import os
+    from dotenv import load_dotenv
+    from openai import OpenAI
+    import instructor
+    import logfire
+    from pydantic import BaseModel, Field
+
+    class Plotly(BaseModel):
+        output_plotly: str = Field(..., description = 'The plotly in JSON Format')
+        keyword_analysis: str = Field(..., description = 'Values of the keyword analysis')
+
+    load_dotenv()
+
+    logfire.configure(token=os.getenv("LOGFIRE_API_KEY"))
+
+    client = instructor.patch(
+        OpenAI(
+        )
+    )
+    logfire.instrument_openai(client)
+
+    return client.chat.completions.create(
+        messages = [
+        {
+            "role": "system",
+            "content": system,
+        },
+        {"role": "user", "content": f""" {prompt}
+        """},
+    ], 
+        model=model,
+        response_model=Plotly,
+    )
+
+
+def handle_click(state):
+   state["product_descriptions"]["visible"] = False
+
+   # Loop through all the base prompts to generate versions tailored to each outlet
+   for outlet, base_prompt in base_prompts.items():
+       state["message"] = f"% Generating product description for {outlet}..."
+       product_description = _generate_product_description(product_info=state["form"].to_dict(),**base_prompt)
+       state["product_descriptions"]["outlets"][outlet] = product_description
+
+
+    # Create the SEO analysis
+   state["message"] = "Analyzing SEO keywords..."
+   outlets = state["product_descriptions"]["outlets"]
+   state["seo_analysis"]["outlets"] = _generate_seo_keywords(outlets)
+   state["seo_analysis"]["visible"] = True
+
+   print(state["seo_analysis"])
+   state["product_descriptions"]["visible"] = True
+   state["message"] = ""
+
+def _generate_seo_keywords(outlets):
+   combined_descriptions = "\n".join(f"{key}: {value}" for key, value in outlets.items())
+
+   # Generate the prompt with the provided descriptions
+   prompt = seo_keywords.format(descriptions=combined_descriptions)
+   # Strip out whitespace and backticks from the response
+   return _run_model_plotly(system = seo_keywords_sp,prompt=prompt).model_dump()['output_plotly']
+
+
+wf.init_state({
+   "form": {
+       "title": "",
+       "description": "",
+       "keywords": ""
+   },
+   "message": "Fill in the inputs and click \"Generate\" to get started.",
+   "product_descriptions": {
+       "visible": False,
+       "outlets": {}
+   },
+   "seo_analysis": {
+       "visible": False,
+       "outlets": {}
+   }
 })
 
-_update_message(initial_state)
+
